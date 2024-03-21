@@ -1,10 +1,12 @@
-use crate::meta::ProcessedInfoMinimal;
 use crate::{
     io::{
         AssetReaderError, AssetWriterError, MissingAssetWriterError,
         MissingProcessedAssetReaderError, MissingProcessedAssetWriterError, Writer,
     },
-    meta::{AssetAction, AssetMeta, AssetMetaDyn, ProcessDependencyInfo, ProcessedInfo, Settings},
+    meta::{
+        AssetAction, AssetMeta, AssetMetaDyn, ProcessDependencyInfo, ProcessedInfo,
+        ProcessedInfoMinimal, Settings,
+    },
     processor::AssetProcessor,
     saver::{AssetSaver, SavedAsset},
     transformer::{AssetTransformer, TransformedAsset},
