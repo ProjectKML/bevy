@@ -1,3 +1,4 @@
+use crate::meta::ProcessedInfoMinimal;
 use crate::{
     io::{
         AssetReaderError, AssetWriterError, MissingAssetWriterError,
@@ -8,9 +9,10 @@ use crate::{
     saver::{AssetSaver, SavedAsset},
     transformer::{AssetTransformer, TransformedAsset},
     AssetLoadError, AssetLoader, AssetPath, DeserializeMetaError, ErasedLoadedAsset,
-    MissingAssetLoaderForExtensionError, MissingAssetLoaderForTypeNameError,
+    MissingAssetLoaderForExtensionError, MissingAssetLoaderForTypeNameError, ReadAssetBytesError,
 };
 use bevy_utils::{BoxedFuture, ConditionalSendFuture};
+use futures_lite::AsyncReadExt;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use thiserror::Error;
@@ -362,6 +364,47 @@ impl<'a> ProcessContext<'a> {
                 });
         }
         Ok(loaded_asset)
+    }
+
+    /// Reads the asset at the given path and returns its bytes
+    pub async fn read_asset_bytes<'b, 'c>(
+        &'b mut self,
+        path: impl Into<AssetPath<'c>>,
+    ) -> Result<Vec<u8>, ReadAssetBytesError> {
+        let path = path.into();
+        let server = &self.processor.server;
+        let source = server.get_source(path.source())?;
+        let asset_reader = source.reader();
+
+        let mut reader = asset_reader.read(path.path()).await?;
+        let full_hash = {
+            // NOTE: ensure meta is read while the asset bytes reader is still active to ensure transactionality
+            // See `ProcessorGatedReader` for more info
+            let meta_bytes = asset_reader.read_meta_bytes(path.path()).await?;
+            let minimal: ProcessedInfoMinimal = ron::de::from_bytes(&meta_bytes)
+                .map_err(DeserializeMetaError::DeserializeMinimal)?;
+            let processed_info = minimal
+                .processed_info
+                .ok_or(ReadAssetBytesError::MissingAssetHash)?;
+            processed_info.full_hash
+        };
+
+        let mut bytes = Vec::new();
+        reader
+            .read_to_end(&mut bytes)
+            .await
+            .map_err(|source| ReadAssetBytesError::Io {
+                path: path.path().to_path_buf(),
+                source,
+            })?;
+
+        self.new_processed_info
+            .process_dependencies
+            .push(ProcessDependencyInfo {
+                full_hash,
+                path: path.clone_owned(),
+            });
+        Ok(bytes)
     }
 
     /// The source bytes of the asset being processed.
