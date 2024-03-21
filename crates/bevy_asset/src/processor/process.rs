@@ -409,6 +409,12 @@ impl<'a> ProcessContext<'a> {
         Ok(bytes)
     }
 
+    /// The path of the asset being processed.
+    #[inline]
+    pub fn path(&self) -> &AssetPath<'static> {
+        self.path
+    }
+
     /// The source bytes of the asset being processed.
     #[inline]
     pub fn asset_bytes(&self) -> &[u8] {
