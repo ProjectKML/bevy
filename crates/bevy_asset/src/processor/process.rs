@@ -1,23 +1,13 @@
-use crate::{
-    io::{
-        AssetReaderError, AssetWriterError, MissingAssetWriterError,
-        MissingProcessedAssetReaderError, MissingProcessedAssetWriterError, Writer,
-    },
-    meta::{
-        AssetAction, AssetMeta, AssetMetaDyn, ProcessDependencyInfo, ProcessedInfo,
-        ProcessedInfoMinimal, Settings,
-    },
-    processor::AssetProcessor,
-    saver::{AssetSaver, SavedAsset},
-    transformer::{AssetTransformer, TransformedAsset},
-    AssetLoadError, AssetLoader, AssetPath, DeserializeMetaError, ErasedLoadedAsset,
-    MissingAssetLoaderForExtensionError, MissingAssetLoaderForTypeNameError, ReadAssetBytesError,
-};
-use bevy_utils::{BoxedFuture, ConditionalSendFuture};
 use futures_lite::AsyncReadExt;
+use crate::{io::{
+    AssetReaderError, AssetWriterError, MissingAssetWriterError,
+    MissingProcessedAssetReaderError, MissingProcessedAssetWriterError, Writer,
+}, meta::{AssetAction, AssetMeta, AssetMetaDyn, ProcessDependencyInfo, ProcessedInfo, Settings}, processor::AssetProcessor, saver::{AssetSaver, SavedAsset}, transformer::{AssetTransformer, TransformedAsset}, AssetLoadError, AssetLoader, AssetPath, DeserializeMetaError, ErasedLoadedAsset, MissingAssetLoaderForExtensionError, MissingAssetLoaderForTypeNameError, ReadAssetBytesError};
+use bevy_utils::{BoxedFuture, ConditionalSendFuture};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use thiserror::Error;
+use crate::meta::{get_asset_hash, ProcessedInfoMinimal};
 
 /// Asset "processor" logic that reads input asset bytes (stored on [`ProcessContext`]), processes the value in some way,
 /// and then writes the final processed bytes with [`Writer`]. The resulting bytes must be loadable with the given [`Process::OutputLoader`].
@@ -78,10 +68,10 @@ pub struct LoadTransformAndSaveSettings<LoaderSettings, TransformerSettings, Sav
 }
 
 impl<
-        L: AssetLoader,
-        T: AssetTransformer<AssetInput = L::Asset>,
-        S: AssetSaver<Asset = T::AssetOutput>,
-    > LoadTransformAndSave<L, T, S>
+    L: AssetLoader,
+    T: AssetTransformer<AssetInput = L::Asset>,
+    S: AssetSaver<Asset = T::AssetOutput>,
+> LoadTransformAndSave<L, T, S>
 {
     pub fn new(transformer: T, saver: S) -> Self {
         LoadTransformAndSave {
@@ -171,10 +161,10 @@ pub enum ProcessError {
 }
 
 impl<
-        Loader: AssetLoader,
-        T: AssetTransformer<AssetInput = Loader::Asset>,
-        Saver: AssetSaver<Asset = T::AssetOutput>,
-    > Process for LoadTransformAndSave<Loader, T, Saver>
+    Loader: AssetLoader,
+    T: AssetTransformer<AssetInput = Loader::Asset>,
+    Saver: AssetSaver<Asset = T::AssetOutput>,
+> Process for LoadTransformAndSave<Loader, T, Saver>
 {
     type Settings = LoadTransformAndSaveSettings<Loader::Settings, T::Settings, Saver::Settings>;
     type OutputLoader = Saver::OutputLoader;
@@ -195,7 +185,7 @@ impl<
         let pre_transformed_asset = TransformedAsset::<Loader::Asset>::from_loaded(
             context.load_source_asset(loader_meta).await?,
         )
-        .unwrap();
+            .unwrap();
 
         let post_transformed_asset = self
             .transformer
@@ -215,7 +205,7 @@ impl<
 }
 
 impl<Loader: AssetLoader, Saver: AssetSaver<Asset = Loader::Asset>> Process
-    for LoadAndSave<Loader, Saver>
+for LoadAndSave<Loader, Saver>
 {
     type Settings = LoadAndSaveSettings<Loader::Settings, Saver::Settings>;
     type OutputLoader = Saver::OutputLoader;
@@ -383,12 +373,7 @@ impl<'a> ProcessContext<'a> {
             // NOTE: ensure meta is read while the asset bytes reader is still active to ensure transactionality
             // See `ProcessorGatedReader` for more info
             let meta_bytes = asset_reader.read_meta_bytes(path.path()).await?;
-            let minimal: ProcessedInfoMinimal = ron::de::from_bytes(&meta_bytes)
-                .map_err(DeserializeMetaError::DeserializeMinimal)?;
-            let processed_info = minimal
-                .processed_info
-                .ok_or(ReadAssetBytesError::MissingAssetHash)?;
-            processed_info.full_hash
+            get_asset_hash(&meta_bytes, self.asset_bytes)
         };
 
         let mut bytes = Vec::new();
